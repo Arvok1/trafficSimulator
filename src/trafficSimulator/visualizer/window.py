@@ -200,6 +200,10 @@ class Window:
                 for segment in self.simulation.segments:
                     for lane in range(segment.num_lanes):
                         for vehicle_id in segment.get_vehicles_in_lane(lane):
+                            # Skip if vehicle was removed
+                            if vehicle_id not in self.simulation.vehicles:
+                                continue
+                                
                             vehicle = self.simulation.vehicles[vehicle_id]
                             
                             # Get vehicle position
@@ -445,11 +449,21 @@ class Window:
 
     def update_vehicle_info(self):
         if self.selected_vehicle is not None:
+            # Check if selected vehicle still exists
+            if self.selected_vehicle not in self.simulation.vehicles:
+                self.selected_vehicle = None
+                dpg.set_value("SelectedVehicleText", "None")
+                dpg.set_value("VehicleSpeedText", "_ m/s")
+                dpg.set_value("VehiclePositionText", "_ m")
+                dpg.set_value("VehicleLaneText", "_")
+                dpg.set_value("VehicleAccelerationText", "_ m/s²")
+                return
+
             vehicle = self.simulation.vehicles[self.selected_vehicle]
-            dpg.set_value("SelectedVehicleText", f"Vehicle {self.selected_vehicle}")
+            dpg.set_value("SelectedVehicleText", str(vehicle.id))
             dpg.set_value("VehicleSpeedText", f"{vehicle.v:.2f} m/s")
             dpg.set_value("VehiclePositionText", f"{vehicle.x:.2f} m")
-            dpg.set_value("VehicleLaneText", f"Lane {vehicle.lane}")
+            dpg.set_value("VehicleLaneText", str(vehicle.lane))
             dpg.set_value("VehicleAccelerationText", f"{vehicle.a:.2f} m/s²")
         else:
             dpg.set_value("SelectedVehicleText", "None")
@@ -477,27 +491,17 @@ class Window:
             for lane in range(segment.num_lanes):
                 active_vehicle_ids.update(segment.get_vehicles_in_lane(lane))
         
-        # Remove rows for vehicles that are no longer active
+        # Remove all existing rows except the template
         for item in dpg.get_item_children("VehicleTable", slot=1):
             if item != "VehicleTableRowTemplate":
-                # Get the row's tag
-                row_tag = dpg.get_item_alias(item)
-                if row_tag and row_tag.startswith("VehicleRow_"):
-                    try:
-                        vehicle_id = int(row_tag.split('_')[1])
-                        if vehicle_id not in active_vehicle_ids:
-                            dpg.delete_item(item)
-                    except (IndexError, ValueError):
-                        continue
+                dpg.delete_item(item)
         
-        # Add or update rows for active vehicles
+        # Add rows for active vehicles
         for vehicle_id in active_vehicle_ids:
-            vehicle = self.simulation.vehicles[vehicle_id]
-            row_tag = f"VehicleRow_{vehicle_id}"
-            
-            # Check if row already exists
-            if not dpg.does_item_exist(row_tag):
-                # Create new row
+            if vehicle_id in self.simulation.vehicles:  # Double check vehicle still exists
+                vehicle = self.simulation.vehicles[vehicle_id]
+                row_tag = f"VehicleRow_{vehicle_id}"
+                
                 with dpg.table_row(parent="VehicleTable", tag=row_tag):
                     dpg.add_button(
                         label=f"Vehicle {vehicle_id}",
@@ -507,12 +511,6 @@ class Window:
                     )
                     dpg.add_text(f"{vehicle.v:.1f} m/s")
                     dpg.add_text(f"{vehicle.x:.1f} m")
-            else:
-                # Update existing row
-                row_children = dpg.get_item_children(row_tag, slot=1)
-                if len(row_children) >= 3:
-                    dpg.set_value(row_children[1], f"{vehicle.v:.1f} m/s")
-                    dpg.set_value(row_children[2], f"{vehicle.x:.1f} m")
 
     def render_loop(self):
         # Events

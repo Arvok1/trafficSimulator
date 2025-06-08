@@ -85,9 +85,12 @@ class Simulation:
                         # Add it to the next road
                         next_road_index = vehicle.path[vehicle.current_road_index]
                         self.segments[next_road_index].add_vehicle(vehicle, vehicle.lane)
-                    # Reset vehicle properties
-                    vehicle.x = 0
-                    # In all cases, remove it from its road
+                        # Reset vehicle properties
+                        vehicle.x = 0
+                    else:
+                        # Vehicle has completed its path, remove it from simulation
+                        del self.vehicles[vehicle_id]
+                    # In all cases, remove it from its current road
                     segment.remove_vehicle(vehicle, lane)
 
         # Update vehicle generators
