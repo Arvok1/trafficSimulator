@@ -142,6 +142,13 @@ class Window:
 
             with dpg.collapsing_header(label="All Vehicles", default_open=True):
                 dpg.add_text("Vehicle List:", tag="VehicleListText")
+                with dpg.table(tag="VehicleTable", header_row=True):
+                    dpg.add_table_column(label="ID")
+                    dpg.add_table_column(label="Speed")
+                    dpg.add_table_column(label="Position")
+                    
+                    # We'll update the table contents in the render loop
+                    dpg.add_table_row(tag="VehicleTableRowTemplate")
 
     def resize_windows(self):
         width = dpg.get_viewport_width()
@@ -462,12 +469,58 @@ class Window:
         
         dpg.set_value("VehicleListText", "\n".join(vehicle_list))
 
+    def update_vehicle_list(self):
+        """Update the vehicle list table with current vehicle information"""
+        # Get all active vehicle IDs (vehicles that are in segments)
+        active_vehicle_ids = set()
+        for segment in self.simulation.segments:
+            for lane in range(segment.num_lanes):
+                active_vehicle_ids.update(segment.get_vehicles_in_lane(lane))
+        
+        # Remove rows for vehicles that are no longer active
+        for item in dpg.get_item_children("VehicleTable", slot=1):
+            if item != "VehicleTableRowTemplate":
+                # Get the row's tag
+                row_tag = dpg.get_item_alias(item)
+                if row_tag and row_tag.startswith("VehicleRow_"):
+                    try:
+                        vehicle_id = int(row_tag.split('_')[1])
+                        if vehicle_id not in active_vehicle_ids:
+                            dpg.delete_item(item)
+                    except (IndexError, ValueError):
+                        continue
+        
+        # Add or update rows for active vehicles
+        for vehicle_id in active_vehicle_ids:
+            vehicle = self.simulation.vehicles[vehicle_id]
+            row_tag = f"VehicleRow_{vehicle_id}"
+            
+            # Check if row already exists
+            if not dpg.does_item_exist(row_tag):
+                # Create new row
+                with dpg.table_row(parent="VehicleTable", tag=row_tag):
+                    dpg.add_button(
+                        label=f"Vehicle {vehicle_id}",
+                        callback=lambda s, a, u: self.select_vehicle(u),
+                        user_data=vehicle_id,
+                        width=-1
+                    )
+                    dpg.add_text(f"{vehicle.v:.1f} m/s")
+                    dpg.add_text(f"{vehicle.x:.1f} m")
+            else:
+                # Update existing row
+                row_children = dpg.get_item_children(row_tag, slot=1)
+                if len(row_children) >= 3:
+                    dpg.set_value(row_children[1], f"{vehicle.v:.1f} m/s")
+                    dpg.set_value(row_children[2], f"{vehicle.x:.1f} m")
+
     def render_loop(self):
         # Events
-        self.update_inertial_zoom()
-        self.update_offset_zoom_slider()
         self.update_panels()
         self.update_vehicle_info()
+        self.update_vehicle_list()
+        self.update_inertial_zoom()
+        self.update_offset_zoom_slider()
 
         # Clear canvas
         dpg.delete_item("Canvas", children_only=True)
@@ -507,3 +560,24 @@ class Window:
             self.stop()
         else:
             self.run()
+
+    def select_vehicle(self, vehicle_id):
+        """Select a vehicle and center the view on it"""
+        self.selected_vehicle = vehicle_id
+        # Find the vehicle's position
+        for segment in self.simulation.segments:
+            for lane in range(segment.num_lanes):
+                if vehicle_id in segment.get_vehicles_in_lane(lane):
+                    vehicle = self.simulation.vehicles[vehicle_id]
+                    x, y = segment.get_point(vehicle.x/segment.get_length())
+                    heading = segment.get_heading(vehicle.x/segment.get_length())
+                    
+                    # Calculate lane offset
+                    lane_offset = (lane - (segment.num_lanes-1)/2) * 3.5
+                    x += lane_offset * np.cos(heading + np.pi/2)
+                    y += lane_offset * np.sin(heading + np.pi/2)
+                    
+                    # Center the view on the vehicle
+                    self.offset = (-x, -y)
+                    self.update_offset_zoom_slider()
+                    return
