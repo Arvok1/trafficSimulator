@@ -376,9 +376,10 @@ class Window:
                         )
 
     def get_vehicle_color(self, vehicle_id):
+        """Get a unique color for each vehicle based on its ID"""
         if vehicle_id not in self.vehicle_colors:
             # Generate a unique color using HSV color space
-            hue = (len(self.vehicle_colors) * 0.618033988749895) % 1.0
+            hue = (hash(str(vehicle_id)) % 360) / 360.0
             saturation = 0.8
             value = 0.9
             r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
@@ -389,9 +390,12 @@ class Window:
         for segment in self.simulation.segments:
             for lane in range(segment.num_lanes):
                 for vehicle_id in segment.get_vehicles_in_lane(lane):
+                    if vehicle_id not in self.simulation.vehicles:
+                        continue
+                        
                     vehicle = self.simulation.vehicles[vehicle_id]
                     
-                    # Get vehicle position and heading
+                    # Get vehicle position
                     x, y = segment.get_point(vehicle.x/segment.get_length())
                     heading = segment.get_heading(vehicle.x/segment.get_length())
                     
@@ -431,15 +435,28 @@ class Window:
                         parent="Canvas"
                     )
                     
-                    # Draw vehicle info above the vehicle
-                    info_pos = self.to_screen(x, y - l)
-                    dpg.draw_text(
-                        info_pos,
-                        f"V{vehicle_id} - {vehicle.v:.1f}m/s",
-                        color=(0, 0, 0),
-                        size=12,
-                        parent="Canvas"
-                    )
+                    # Calculate info position (to the right of the vehicle)
+                    info_x = x + l/2*np.cos(heading) + w*np.cos(heading + np.pi/2)
+                    info_y = y + l/2*np.sin(heading) + w*np.sin(heading + np.pi/2)
+                    info_pos = self.to_screen(info_x, info_y)
+                    
+                    # Draw vehicle info
+                    info_text = [
+                        f"ID: {vehicle_id}",
+                        f"Speed: {vehicle.v:.1f} m/s",
+                        f"Accel: {vehicle.a:.1f} m/s²",
+                        f"Lane: {vehicle.lane}"
+                    ]
+                    
+                    # Draw each line of info with a slight offset
+                    for i, text in enumerate(info_text):
+                        dpg.draw_text(
+                            (info_pos[0], info_pos[1] + i * 15),
+                            text,
+                            color=(0, 0, 0),
+                            size=12,
+                            parent="Canvas"
+                        )
 
     def apply_transformation(self):
         screen_center = dpg.create_translation_matrix([self.canvas_width/2, self.canvas_height/2, -0.01])
