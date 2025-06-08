@@ -4,12 +4,11 @@ from collections import deque
 from numpy import arctan2, unwrap, linspace
 
 class Segment:
-    def __init__(self, points):
+    def __init__(self, points, num_lanes=1):
         self.points = points
-        self.vehicles = deque()
-
+        self.num_lanes = num_lanes
+        self.lanes = [deque() for _ in range(num_lanes)]  # List of deques, one per lane
         self.set_functions()
-        
 
     def set_functions(self):
         # Point
@@ -31,8 +30,22 @@ class Segment:
             length += distance.euclidean(self.points[i], self.points[i+1])
         return length
 
-    def add_vehicle(self, veh):
-        self.vehicles.append(veh.id)
+    def add_vehicle(self, veh, lane=0):
+        if 0 <= lane < self.num_lanes:
+            self.lanes[lane].append(veh.id)
+            return True
+        return False
 
-    def remove_vehicle(self, veh):
-        self.vehicles.remove(veh.id)
+    def remove_vehicle(self, veh, lane=0):
+        if 0 <= lane < self.num_lanes and veh.id in self.lanes[lane]:
+            self.lanes[lane].remove(veh.id)
+            return True
+        return False
+
+    def get_vehicles_in_lane(self, lane):
+        if 0 <= lane < self.num_lanes:
+            return list(self.lanes[lane])
+        return []
+
+    def get_all_vehicles(self):
+        return [veh_id for lane in self.lanes for veh_id in lane]

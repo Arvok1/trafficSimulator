@@ -16,19 +16,20 @@ class Vehicle:
     def set_default_config(self):    
         self.id = uuid.uuid4()
 
-        self.l = 4
-        self.s0 = 4
-        self.T = 1
-        self.v_max = 16.6
-        self.a_max = 1.44
-        self.b_max = 4.61
+        self.l = 4  # Vehicle length
+        self.s0 = 4  # Minimum safe distance
+        self.T = 1  # Safe time headway
+        self.v_max = 16.6  # Maximum velocity
+        self.a_max = 1.44  # Maximum acceleration
+        self.b_max = 4.61  # Maximum deceleration
 
-        self.path = []
-        self.current_road_index = 0
+        self.path = []  # List of segment indices
+        self.current_road_index = 0  # Current segment index in path
+        self.lane = 0  # Current lane index
 
-        self.x = 0
-        self.v = 0
-        self.a = 0
+        self.x = 0  # Position on current segment
+        self.v = 0  # Velocity
+        self.a = 0  # Acceleration
         self.stopped = False
 
     def init_properties(self):

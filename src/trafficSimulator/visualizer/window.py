@@ -1,4 +1,5 @@
 import dearpygui.dearpygui as dpg
+import numpy as np
 
 
 class Window:
@@ -10,6 +11,7 @@ class Window:
         self.speed = 1
 
         self.is_running = False
+        self.selected_vehicle = None
 
         self.is_dragging = False
         self.old_offset = (0, 0)
@@ -28,7 +30,6 @@ class Window:
 
     def setup_themes(self):
         with dpg.theme() as global_theme:
-
             with dpg.theme_component(dpg.mvAll):
                 dpg.add_theme_style(dpg.mvStyleVar_FrameRounding, 5, category=dpg.mvThemeCat_Core)
                 dpg.add_theme_style(dpg.mvStyleVar_FrameBorderSize, 1, category=dpg.mvThemeCat_Core)
@@ -112,6 +113,31 @@ class Window:
                     dpg.add_slider_float(tag="OffsetXSlider", label="X Offset", min_value=-100, max_value=100, default_value=self.offset[0], callback=self.set_offset_zoom)
                     dpg.add_slider_float(tag="OffsetYSlider", label="Y Offset", min_value=-100, max_value=100, default_value=self.offset[1], callback=self.set_offset_zoom)
 
+            with dpg.collapsing_header(label="Vehicle Info", default_open=True, tag="VehicleInfoHeader"):
+                with dpg.table(header_row=False):
+                    dpg.add_table_column()
+                    dpg.add_table_column()
+                    
+                    with dpg.table_row():
+                        dpg.add_text("Selected Vehicle:")
+                        dpg.add_text("None", tag="SelectedVehicleText")
+
+                    with dpg.table_row():
+                        dpg.add_text("Speed:")
+                        dpg.add_text("_ m/s", tag="VehicleSpeedText")
+
+                    with dpg.table_row():
+                        dpg.add_text("Position:")
+                        dpg.add_text("_ m", tag="VehiclePositionText")
+
+                    with dpg.table_row():
+                        dpg.add_text("Lane:")
+                        dpg.add_text("_", tag="VehicleLaneText")
+
+                    with dpg.table_row():
+                        dpg.add_text("Acceleration:")
+                        dpg.add_text("_ m/s²", tag="VehicleAccelerationText")
+
     def resize_windows(self):
         width = dpg.get_viewport_width()
         height = dpg.get_viewport_height()
@@ -151,6 +177,39 @@ class Window:
     def mouse_down(self):
         if not self.is_dragging:
             if dpg.is_item_hovered("MainWindow"):
+                # Check for vehicle selection
+                mouse_pos = dpg.get_mouse_pos()
+                world_pos = self.to_world(mouse_pos[0], mouse_pos[1])
+                
+                # Reset selection
+                self.selected_vehicle = None
+                
+                # Check each vehicle
+                for segment in self.simulation.segments:
+                    for lane in range(segment.num_lanes):
+                        for vehicle_id in segment.get_vehicles_in_lane(lane):
+                            vehicle = self.simulation.vehicles[vehicle_id]
+                            
+                            # Get vehicle position
+                            x, y = segment.get_point(vehicle.x/segment.get_length())
+                            heading = segment.get_heading(vehicle.x/segment.get_length())
+                            
+                            # Calculate lane offset
+                            lane_offset = (lane - (segment.num_lanes-1)/2) * 3.5
+                            x += lane_offset * np.cos(heading + np.pi/2)
+                            y += lane_offset * np.sin(heading + np.pi/2)
+                            
+                            # Check if click is within vehicle bounds
+                            dx = world_pos[0] - x
+                            dy = world_pos[1] - y
+                            if abs(dx) < vehicle.l/2 and abs(dy) < vehicle.l/4:
+                                self.selected_vehicle = vehicle_id
+                                break
+                        if self.selected_vehicle is not None:
+                            break
+                    if self.selected_vehicle is not None:
+                        break
+                
                 self.is_dragging = True
                 self.old_offset = self.offset
         
@@ -211,8 +270,8 @@ class Window:
 
     def draw_bg(self, color=(250, 250, 250)):
         dpg.draw_rectangle(
-            (-10, -10),
-            (self.canvas_width+10, self.canvas_height+10), 
+            (0, 0),
+            (self.canvas_width, self.canvas_height), 
             thickness=0,
             fill=color,
             parent="OverlayCanvas"
@@ -222,15 +281,15 @@ class Window:
         x_center, y_center = self.to_screen(0, 0)
         
         dpg.draw_line(
-            (-10, y_center),
-            (self.canvas_width+10, y_center),
+            (0, y_center),
+            (self.canvas_width, y_center),
             thickness=2, 
             color=(0, 0, 0, opacity),
             parent="OverlayCanvas"
         )
         dpg.draw_line(
-            (x_center, -10),
-            (x_center, self.canvas_height+10),
+            (x_center, 0),
+            (x_center, self.canvas_height),
             thickness=2,
             color=(0, 0, 0, opacity),
             parent="OverlayCanvas"
@@ -247,17 +306,16 @@ class Window:
 
         for i in range(n_x, m_x):
             dpg.draw_line(
-                self.to_screen(unit*i, y_start - 10/self.zoom),
-                self.to_screen(unit*i, y_end + 10/self.zoom),
+                self.to_screen(unit*i, y_start),
+                self.to_screen(unit*i, y_end),
                 thickness=1,
                 color=(0, 0, 0, opacity),
                 parent="OverlayCanvas"
             )
-
         for i in range(n_y, m_y):
             dpg.draw_line(
-                self.to_screen(x_start - 10/self.zoom, unit*i),
-                self.to_screen(x_end + 10/self.zoom, unit*i),
+                self.to_screen(x_start, unit*i),
+                self.to_screen(x_end, unit*i),
                 thickness=1,
                 color=(0, 0, 0, opacity),
                 parent="OverlayCanvas"
@@ -265,30 +323,62 @@ class Window:
 
     def draw_segments(self):
         for segment in self.simulation.segments:
-            dpg.draw_polyline(segment.points, color=(180, 180, 220), thickness=3.5*self.zoom, parent="Canvas")
-            # dpg.draw_arrow(segment.points[-1], segment.points[-2], thickness=0, size=2, color=(0, 0, 0, 50), parent="Canvas")
+            # Draw road
+            points = [self.to_screen(*point) for point in segment.points]
+            dpg.draw_polyline(points, color=(100, 100, 100), thickness=2, parent="Canvas")
+            
+            # Draw lane markers
+            for lane in range(segment.num_lanes - 1):
+                lane_offset = (lane + 0.5 - (segment.num_lanes-1)/2) * 3.5
+                lane_points = []
+                for point in segment.points:
+                    x, y = point
+                    heading = segment.get_heading(segment.points.index(point)/(len(segment.points)-1))
+                    x += lane_offset * np.cos(heading + np.pi/2)
+                    y += lane_offset * np.sin(heading + np.pi/2)
+                    lane_points.append(self.to_screen(x, y))
+                dpg.draw_polyline(lane_points, color=(255, 255, 0), thickness=1, parent="Canvas")
 
     def draw_vehicles(self):
         for segment in self.simulation.segments:
-            for vehicle_id in segment.vehicles:
-                vehicle = self.simulation.vehicles[vehicle_id]
-                progress = vehicle.x / segment.get_length()
-
-                position = segment.get_point(progress)
-                heading = segment.get_heading(progress)
-
-                node = dpg.add_draw_node(parent="Canvas")
-                dpg.draw_line(
-                    (0, 0),
-                    (vehicle.l, 0),
-                    thickness=1.76*self.zoom,
-                    color=(0, 0, 255),
-                    parent=node
-                )
-
-                translate = dpg.create_translation_matrix(position)
-                rotate = dpg.create_rotation_matrix(heading, [0, 0, 1])
-                dpg.apply_transform(node, translate*rotate)
+            for lane in range(segment.num_lanes):
+                for vehicle_id in segment.get_vehicles_in_lane(lane):
+                    vehicle = self.simulation.vehicles[vehicle_id]
+                    
+                    # Get vehicle position and heading
+                    x, y = segment.get_point(vehicle.x/segment.get_length())
+                    heading = segment.get_heading(vehicle.x/segment.get_length())
+                    
+                    # Calculate vehicle corners
+                    l = vehicle.l
+                    w = l/2
+                    
+                    # Calculate lane offset
+                    lane_offset = (lane - (segment.num_lanes-1)/2) * 3.5
+                    
+                    # Apply lane offset perpendicular to road direction
+                    x += lane_offset * np.cos(heading + np.pi/2)
+                    y += lane_offset * np.sin(heading + np.pi/2)
+                    
+                    # Calculate corners
+                    corners = [
+                        (x + l/2*np.cos(heading) + w/2*np.cos(heading + np.pi/2),
+                         y + l/2*np.sin(heading) + w/2*np.sin(heading + np.pi/2)),
+                        (x + l/2*np.cos(heading) - w/2*np.cos(heading + np.pi/2),
+                         y + l/2*np.sin(heading) - w/2*np.sin(heading + np.pi/2)),
+                        (x - l/2*np.cos(heading) - w/2*np.cos(heading + np.pi/2),
+                         y - l/2*np.sin(heading) - w/2*np.sin(heading + np.pi/2)),
+                        (x - l/2*np.cos(heading) + w/2*np.cos(heading + np.pi/2),
+                         y - l/2*np.sin(heading) + w/2*np.sin(heading + np.pi/2))
+                    ]
+                    
+                    # Draw vehicle with different color if selected
+                    color = (255, 0, 0) if vehicle_id == self.selected_vehicle else (200, 0, 0)
+                    dpg.draw_polygon(
+                        [self.to_screen(*corner) for corner in corners],
+                        fill=color,
+                        parent="Canvas"
+                    )
 
     def apply_transformation(self):
         screen_center = dpg.create_translation_matrix([self.canvas_width/2, self.canvas_height/2, -0.01])
@@ -296,33 +386,43 @@ class Window:
         scale = dpg.create_scale_matrix([self.zoom, self.zoom])
         dpg.apply_transform("Canvas", screen_center*scale*translate)
 
+    def update_vehicle_info(self):
+        if self.selected_vehicle is not None:
+            vehicle = self.simulation.vehicles[self.selected_vehicle]
+            dpg.set_value("SelectedVehicleText", f"Vehicle {self.selected_vehicle}")
+            dpg.set_value("VehicleSpeedText", f"{vehicle.v:.2f} m/s")
+            dpg.set_value("VehiclePositionText", f"{vehicle.x:.2f} m")
+            dpg.set_value("VehicleLaneText", f"Lane {vehicle.lane}")
+            dpg.set_value("VehicleAccelerationText", f"{vehicle.a:.2f} m/s²")
+        else:
+            dpg.set_value("SelectedVehicleText", "None")
+            dpg.set_value("VehicleSpeedText", "_ m/s")
+            dpg.set_value("VehiclePositionText", "_ m")
+            dpg.set_value("VehicleLaneText", "_")
+            dpg.set_value("VehicleAccelerationText", "_ m/s²")
 
     def render_loop(self):
         # Events
         self.update_inertial_zoom()
         self.update_offset_zoom_slider()
+        self.update_panels()
+        self.update_vehicle_info()
 
-        # Remove old drawings
-        dpg.delete_item("OverlayCanvas", children_only=True)
+        # Clear canvas
         dpg.delete_item("Canvas", children_only=True)
-        
-        # New drawings
+        dpg.delete_item("OverlayCanvas", children_only=True)
+
+        # Draw
         self.draw_bg()
+        self.draw_grid()
         self.draw_axes()
-        self.draw_grid(unit=10)
-        self.draw_grid(unit=50)
         self.draw_segments()
         self.draw_vehicles()
 
-        # Apply transformations
-        self.apply_transformation()
-
-        # Update panels
-        self.update_panels()
-
-        # Update simulation
+        # Update
         if self.is_running:
-            self.simulation.run(self.speed)
+            for _ in range(self.speed):
+                self.simulation.update()
 
     def show(self):
         dpg.show_viewport()
@@ -333,14 +433,16 @@ class Window:
 
     def run(self):
         self.is_running = True
-        dpg.set_item_label("RunStopButton", "Stop")
+        dpg.configure_item("RunStopButton", label="Stop")
         dpg.bind_item_theme("RunStopButton", "StopButtonTheme")
 
     def stop(self):
         self.is_running = False
-        dpg.set_item_label("RunStopButton", "Run")
+        dpg.configure_item("RunStopButton", label="Run")
         dpg.bind_item_theme("RunStopButton", "RunButtonTheme")
 
     def toggle(self):
-        if self.is_running: self.stop()
-        else: self.run()
+        if self.is_running:
+            self.stop()
+        else:
+            self.run()
