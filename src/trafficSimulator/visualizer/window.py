@@ -1,5 +1,6 @@
 import dearpygui.dearpygui as dpg
 import numpy as np
+import colorsys
 
 
 class Window:
@@ -12,6 +13,7 @@ class Window:
 
         self.is_running = False
         self.selected_vehicle = None
+        self.vehicle_colors = {}  # Store unique colors for each vehicle
 
         self.is_dragging = False
         self.old_offset = (0, 0)
@@ -137,6 +139,9 @@ class Window:
                     with dpg.table_row():
                         dpg.add_text("Acceleration:")
                         dpg.add_text("_ m/s²", tag="VehicleAccelerationText")
+
+            with dpg.collapsing_header(label="All Vehicles", default_open=True):
+                dpg.add_text("Vehicle List:", tag="VehicleListText")
 
     def resize_windows(self):
         width = dpg.get_viewport_width()
@@ -323,9 +328,20 @@ class Window:
 
     def draw_segments(self):
         for segment in self.simulation.segments:
-            # Draw road
-            points = [self.to_screen(*point) for point in segment.points]
-            dpg.draw_polyline(points, color=(100, 100, 100), thickness=2, parent="Canvas")
+            # Calculate total road width
+            total_width = segment.num_lanes * 3.5  # 3.5m per lane
+            
+            # Draw road edges
+            for side in [-1, 1]:  # -1 for left edge, 1 for right edge
+                edge_points = []
+                for point in segment.points:
+                    x, y = point
+                    heading = segment.get_heading(segment.points.index(point)/(len(segment.points)-1))
+                    # Offset by half the total width
+                    x += side * (total_width/2) * np.cos(heading + np.pi/2)
+                    y += side * (total_width/2) * np.sin(heading + np.pi/2)
+                    edge_points.append(self.to_screen(x, y))
+                dpg.draw_polyline(edge_points, color=(100, 100, 100), thickness=2, parent="Canvas")
             
             # Draw lane markers
             for lane in range(segment.num_lanes - 1):
@@ -337,7 +353,26 @@ class Window:
                     x += lane_offset * np.cos(heading + np.pi/2)
                     y += lane_offset * np.sin(heading + np.pi/2)
                     lane_points.append(self.to_screen(x, y))
-                dpg.draw_polyline(lane_points, color=(255, 255, 0), thickness=1, parent="Canvas")
+                # Draw dashed lane markers
+                for i in range(len(lane_points)-1):
+                    if i % 2 == 0:  # Only draw every other segment for dashed effect
+                        dpg.draw_line(
+                            lane_points[i],
+                            lane_points[i+1],
+                            color=(255, 255, 0),
+                            thickness=1,
+                            parent="Canvas"
+                        )
+
+    def get_vehicle_color(self, vehicle_id):
+        if vehicle_id not in self.vehicle_colors:
+            # Generate a unique color using HSV color space
+            hue = (len(self.vehicle_colors) * 0.618033988749895) % 1.0
+            saturation = 0.8
+            value = 0.9
+            r, g, b = colorsys.hsv_to_rgb(hue, saturation, value)
+            self.vehicle_colors[vehicle_id] = (int(r * 255), int(g * 255), int(b * 255))
+        return self.vehicle_colors[vehicle_id]
 
     def draw_vehicles(self):
         for segment in self.simulation.segments:
@@ -372,11 +407,26 @@ class Window:
                          y - l/2*np.sin(heading) + w/2*np.sin(heading + np.pi/2))
                     ]
                     
-                    # Draw vehicle with different color if selected
-                    color = (255, 0, 0) if vehicle_id == self.selected_vehicle else (200, 0, 0)
+                    # Get vehicle color
+                    color = self.get_vehicle_color(vehicle_id)
+                    if vehicle_id == self.selected_vehicle:
+                        # Make selected vehicle brighter
+                        color = tuple(min(255, c + 50) for c in color)
+                    
+                    # Draw vehicle
                     dpg.draw_polygon(
                         [self.to_screen(*corner) for corner in corners],
                         fill=color,
+                        parent="Canvas"
+                    )
+                    
+                    # Draw vehicle info above the vehicle
+                    info_pos = self.to_screen(x, y - l)
+                    dpg.draw_text(
+                        info_pos,
+                        f"V{vehicle_id} - {vehicle.v:.1f}m/s",
+                        color=(0, 0, 0),
+                        size=12,
                         parent="Canvas"
                     )
 
@@ -400,6 +450,17 @@ class Window:
             dpg.set_value("VehiclePositionText", "_ m")
             dpg.set_value("VehicleLaneText", "_")
             dpg.set_value("VehicleAccelerationText", "_ m/s²")
+
+        # Update vehicle list
+        vehicle_list = []
+        for segment in self.simulation.segments:
+            for lane in range(segment.num_lanes):
+                for vehicle_id in segment.get_vehicles_in_lane(lane):
+                    vehicle = self.simulation.vehicles[vehicle_id]
+                    color = self.get_vehicle_color(vehicle_id)
+                    vehicle_list.append(f"Vehicle {vehicle_id} - Lane {vehicle.lane} - Speed: {vehicle.v:.2f} m/s")
+        
+        dpg.set_value("VehicleListText", "\n".join(vehicle_list))
 
     def render_loop(self):
         # Events
